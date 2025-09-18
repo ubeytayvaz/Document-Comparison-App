@@ -86,32 +86,40 @@ def compare_and_highlight(pdf_bytes1, pdf_bytes2):
 
     return output_bytes1, output_bytes2
 
-def render_single_page_view(pdf_bytes1, pdf_bytes2, page_index):
+def render_all_pages_view(pdf_bytes1, pdf_bytes2):
     """
-    Seçilen tek bir sayfayı yüksek çözünürlüklü resim olarak yan yana gösterir.
+    Vurgulanmış PDF'leri sayfa sayfa resim olarak yan yana, alt alta gösterir.
     """
     doc1 = fitz.open(stream=pdf_bytes1, filetype="pdf")
     doc2 = fitz.open(stream=pdf_bytes2, filetype="pdf")
     
-    col1, col2 = st.columns(2)
+    max_pages = max(doc1.page_count, doc2.page_count)
 
-    with col1:
-        if page_index < doc1.page_count:
-            page1 = doc1.load_page(page_index)
-            pix = page1.get_pixmap(dpi=200) # Görüntü kalitesi artırıldı
-            img_bytes = pix.tobytes("png")
-            st.image(img_bytes, use_column_width=True)
-        else:
-            st.warning("Bu dökümanda bu sayfa mevcut değil.")
-    
-    with col2:
-        if page_index < doc2.page_count:
-            page2 = doc2.load_page(page_index)
-            pix = page2.get_pixmap(dpi=200) # Görüntü kalitesi artırıldı
-            img_bytes = pix.tobytes("png")
-            st.image(img_bytes, use_column_width=True)
-        else:
-            st.warning("Bu dökümanda bu sayfa mevcut değil.")
+    st.markdown("---") # Ayırıcı çizgi
+
+    for i in range(max_pages):
+        st.markdown(f"### Sayfa {i+1}")
+        col1, col2 = st.columns(2)
+
+        with col1:
+            if i < doc1.page_count:
+                page1 = doc1.load_page(i)
+                # Görüntü kalitesini artırmak için DPI (dots per inch) değeri
+                pix = page1.get_pixmap(dpi=200) 
+                img_bytes = pix.tobytes("png")
+                st.image(img_bytes, use_column_width=True)
+            else:
+                st.info("Bu dökümanda bu sayfa mevcut değil.")
+        
+        with col2:
+            if i < doc2.page_count:
+                page2 = doc2.load_page(i)
+                pix = page2.get_pixmap(dpi=200)
+                img_bytes = pix.tobytes("png")
+                st.image(img_bytes, use_column_width=True)
+            else:
+                st.info("Bu dökümanda bu sayfa mevcut değil.")
+        st.markdown("---") # Her sayfadan sonra ayırıcı
 
     doc1.close()
     doc2.close()
@@ -177,25 +185,8 @@ if uploaded_file1 and uploaded_file2:
                     mime="application/pdf"
                 )
             
-            st.markdown("---")
-
-            # Sayfa navigasyonu için slider ve sayfa gösterimi
-            temp_doc1 = fitz.open(stream=highlighted_pdf1_bytes, filetype="pdf")
-            max_pages = temp_doc1.page_count
-            temp_doc1.close()
-
-            if max_pages > 0:
-                selected_page = st.slider(
-                    "Karşılaştırılacak Sayfayı Seçin", 
-                    min_value=1, 
-                    max_value=max_pages, 
-                    value=1
-                )
-                
-                st.markdown(f"#### Sayfa {selected_page} / {max_pages}")
-                render_single_page_view(highlighted_pdf1_bytes, highlighted_pdf2_bytes, selected_page - 1)
-            else:
-                st.warning("Görüntülenecek sayfa bulunamadı.")
+            # Sonuçları sayfa sayfa resim olarak göster
+            render_all_pages_view(highlighted_pdf1_bytes, highlighted_pdf2_bytes)
 
 
         except Exception as e:
