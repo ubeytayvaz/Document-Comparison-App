@@ -98,28 +98,28 @@ def render_all_pages_view(pdf_bytes1, pdf_bytes2):
     st.markdown("---") # Ayırıcı çizgi
 
     for i in range(max_pages):
-        st.markdown(f"### Sayfa {i+1}")
         col1, col2 = st.columns(2)
 
         with col1:
             if i < doc1.page_count:
                 page1 = doc1.load_page(i)
-                # Görüntü kalitesini artırmak için DPI (dots per inch) değeri
-                pix = page1.get_pixmap(dpi=200) 
+                # Görüntü boyutunu ayarlamak için DPI (dots per inch) değeri
+                pix = page1.get_pixmap(dpi=150) 
                 img_bytes = pix.tobytes("png")
-                st.image(img_bytes, use_column_width=True)
+                st.image(img_bytes, use_container_width=True)
             else:
-                st.info("Bu dökümanda bu sayfa mevcut değil.")
+                # Boş sayfalar için yer tutucu
+                st.markdown("&nbsp;", unsafe_allow_html=True)
         
         with col2:
             if i < doc2.page_count:
                 page2 = doc2.load_page(i)
-                pix = page2.get_pixmap(dpi=200)
+                pix = page2.get_pixmap(dpi=150)
                 img_bytes = pix.tobytes("png")
-                st.image(img_bytes, use_column_width=True)
+                st.image(img_bytes, use_container_width=True)
             else:
-                st.info("Bu dökümanda bu sayfa mevcut değil.")
-        st.markdown("---") # Her sayfadan sonra ayırıcı
+                # Boş sayfalar için yer tutucu
+                st.markdown("&nbsp;", unsafe_allow_html=True)
 
     doc1.close()
     doc2.close()
