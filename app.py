@@ -3,6 +3,8 @@ import docx
 from PyPDF2 import PdfReader
 import difflib
 import io
+import fitz  # PyMuPDF kütüphanesi
+from PIL import Image
 
 # Sayfa yapılandırmasını geniş olarak ayarlayarak karşılaştırma için daha fazla alan sağlıyoruz
 st.set_page_config(layout="wide", page_title="Döküman Karşılaştırma Aracı")
@@ -16,6 +18,8 @@ def get_text_from_file(uploaded_file):
     # Dosyanın var olup olmadığını kontrol et
     if uploaded_file is not None:
         try:
+            # Dosya imlecini başa al
+            uploaded_file.seek(0)
             # Dosya türüne göre işlem yap
             if uploaded_file.type == "text/plain":
                 # Txt dosyaları için
@@ -38,9 +42,33 @@ def get_text_from_file(uploaded_file):
             return None
     return text
 
+def render_pdf_to_images(uploaded_file):
+    """
+    Yüklenen PDF dosyasının sayfalarını görsellere dönüştürür.
+    """
+    images = []
+    try:
+        # Dosya imlecini başa al
+        uploaded_file.seek(0)
+        # Dosya içeriğini byte olarak oku
+        pdf_bytes = uploaded_file.read()
+        pdf_document = fitz.open(stream=pdf_bytes, filetype="pdf")
+        for page_num in range(len(pdf_document)):
+            page = pdf_document.load_page(page_num)
+            pix = page.get_pixmap()
+            img_data = pix.tobytes("png")
+            image = Image.open(io.BytesIO(img_data))
+            images.append(image)
+        pdf_document.close()
+    except Exception as e:
+        st.error(f"PDF görselleştirilirken bir hata oluştu: {uploaded_file.name}. Hata: {e}")
+        return []
+    return images
+
+
 # Ana başlık ve bilgilendirme
-st.title("📄 Döküman Karşılaştırma Aracı")
-st.info("Karşılaştırmak istediğiniz iki dökümanı (Word, PDF, veya TXT) aşağıya yükleyerek aralarındaki farkları görebilirsiniz.")
+st.title("📄 Gelişmiş Döküman Karşılaştırma Aracı")
+st.info("Karşılaştırmak istediğiniz iki dökümanı (Word, PDF, veya TXT) yükleyerek metinsel farkları görebilirsiniz. Eğer iki dosya da PDF ise, görsel olarak da karşılaştırılacaktır.")
 
 # Dosya yükleme alanlarını iki sütunda göster
 col1, col2 = st.columns(2)
@@ -65,7 +93,41 @@ with col2:
 
 # İki dosya da yüklendiğinde karşılaştırmayı yap
 if uploaded_file1 and uploaded_file2:
-    with st.spinner("Dosyalar okunuyor ve karşılaştırılıyor... Lütfen bekleyin."):
+    
+    # Eğer her iki dosya da PDF ise, görsel karşılaştırma yap
+    if uploaded_file1.type == "application/pdf" and uploaded_file2.type == "application/pdf":
+        st.header("Görsel Karşılaştırma", divider='rainbow')
+        with st.spinner("PDF sayfaları görsellere dönüştürülüyor... Lütfen bekleyin."):
+            images1 = render_pdf_to_images(uploaded_file1)
+            images2 = render_pdf_to_images(uploaded_file2)
+
+            if images1 and images2:
+                st.success("PDF'ler görselleştirildi. Sayfaları aşağıda karşılaştırabilirsiniz.")
+                
+                # İki PDF'in sayfa sayılarından büyük olanı al
+                max_pages = max(len(images1), len(images2))
+                
+                for i in range(max_pages):
+                    st.markdown(f"--- \n ### Sayfa {i+1}")
+                    img_col1, img_col2 = st.columns(2)
+                    
+                    # Birinci PDF'in sayfasını göster
+                    with img_col1:
+                        if i < len(images1):
+                            st.image(images1[i], caption=f"{uploaded_file1.name} - Sayfa {i+1}", use_column_width=True)
+                        else:
+                            st.warning(f"Bu dökümanda {i+1}. sayfa bulunmuyor.")
+                    
+                    # İkinci PDF'in sayfasını göster
+                    with img_col2:
+                        if i < len(images2):
+                            st.image(images2[i], caption=f"{uploaded_file2.name} - Sayfa {i+1}", use_column_width=True)
+                        else:
+                            st.warning(f"Bu dökümanda {i+1}. sayfa bulunmuyor.")
+
+    # Metinsel karşılaştırma her zaman yapılır
+    st.header("Metinsel Karşılaştırma", divider='rainbow')
+    with st.spinner("Dosyalar okunuyor ve metinler karşılaştırılıyor... Lütfen bekleyin."):
         # Dosyalardan metinleri al
         text1 = get_text_from_file(uploaded_file1)
         text2 = get_text_from_file(uploaded_file2)
@@ -84,21 +146,13 @@ if uploaded_file1 and uploaded_file2:
                 todesc=f"Dosya 2: {uploaded_file2.name}"
             )
 
-            st.success("Karşılaştırma tamamlandı! Sonuçlar aşağıdadır.")
-            st.header("Karşılaştırma Sonucu", divider='rainbow')
+            st.success("Metinsel karşılaştırma tamamlandı! Sonuçlar aşağıdadır.")
 
             # Oluşturulan HTML'i ekranda göster
             st.markdown(html_diff, unsafe_allow_html=True)
-
-            # İsteğe bağlı olarak orijinal metinleri de bir expander içinde göster
-            with st.expander("Yüklenen Dosyaların Orijinal Metinlerini Görüntüle"):
-                col_exp1, col_exp2 = st.columns(2)
-                with col_exp1:
-                    st.text_area(f"Metin 1: {uploaded_file1.name}", text1, height=400)
-                with col_exp2:
-                    st.text_area(f"Metin 2: {uploaded_file2.name}", text2, height=400)
 
 elif uploaded_file1 and not uploaded_file2:
     st.warning("Lütfen karşılaştırma yapmak için ikinci dosyayı da yükleyin.")
 elif not uploaded_file1 and uploaded_file2:
     st.warning("Lütfen karşılaştırma yapmak için birinci dosyayı da yükleyin.")
+
