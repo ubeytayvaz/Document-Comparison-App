@@ -1,158 +1,144 @@
 import streamlit as st
-import docx
-from PyPDF2 import PdfReader
-import difflib
-import io
 import fitz  # PyMuPDF kütüphanesi
-from PIL import Image
+import difflib
+import base64
 
 # Sayfa yapılandırmasını geniş olarak ayarlayarak karşılaştırma için daha fazla alan sağlıyoruz
-st.set_page_config(layout="wide", page_title="Döküman Karşılaştırma Aracı")
+st.set_page_config(layout="wide", page_title="Görsel PDF Karşılaştırma Aracı")
 
-def get_text_from_file(uploaded_file):
+def compare_and_highlight(pdf_bytes1, pdf_bytes2):
     """
-    Yüklenen dosyayı türüne göre okur ve metin içeriğini döndürür.
-    Desteklenen formatlar: .txt, .pdf, .docx
+    İki PDF'i karşılaştırır, farkları bulur ve yeni PDF'ler üzerinde vurgular.
+    - Silinen metinler (sadece ilk PDF'te olanlar) kırmızı ile vurgulanır.
+    - Eklenen metinler (sadece ikinci PDF'te olanlar) sarı ile vurgulanır.
+    - Yeri değişen metinler her iki PDF'te de açık mavi ile vurgulanır.
     """
-    text = ""
-    # Dosyanın var olup olmadığını kontrol et
-    if uploaded_file is not None:
-        try:
-            # Dosya imlecini başa al
-            uploaded_file.seek(0)
-            # Dosya türüne göre işlem yap
-            if uploaded_file.type == "text/plain":
-                # Txt dosyaları için
-                stringio = io.StringIO(uploaded_file.getvalue().decode("utf-8"))
-                text = stringio.read()
-            elif uploaded_file.type == "application/pdf":
-                # PDF dosyaları için
-                pdf_reader = PdfReader(uploaded_file)
-                for page in pdf_reader.pages:
-                    page_text = page.extract_text()
-                    if page_text:
-                        text += page_text + "\n"
-            elif uploaded_file.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-                # Docx (Word) dosyaları için
-                doc = docx.Document(uploaded_file)
-                for para in doc.paragraphs:
-                    text += para.text + "\n"
-        except Exception as e:
-            st.error(f"Dosya okunurken bir hata oluştu: {uploaded_file.name}. Hata: {e}")
-            return None
-    return text
+    doc1 = fitz.open(stream=pdf_bytes1, filetype="pdf")
+    doc2 = fitz.open(stream=pdf_bytes2, filetype="pdf")
 
-def render_pdf_to_images(uploaded_file):
-    """
-    Yüklenen PDF dosyasının sayfalarını görsellere dönüştürür.
-    """
-    images = []
-    try:
-        # Dosya imlecini başa al
-        uploaded_file.seek(0)
-        # Dosya içeriğini byte olarak oku
-        pdf_bytes = uploaded_file.read()
-        pdf_document = fitz.open(stream=pdf_bytes, filetype="pdf")
-        for page_num in range(len(pdf_document)):
-            page = pdf_document.load_page(page_num)
-            pix = page.get_pixmap()
-            img_data = pix.tobytes("png")
-            image = Image.open(io.BytesIO(img_data))
-            images.append(image)
-        pdf_document.close()
-    except Exception as e:
-        st.error(f"PDF görselleştirilirken bir hata oluştu: {uploaded_file.name}. Hata: {e}")
-        return []
-    return images
+    # Karşılaştırılacak sayfa sayısı, en uzun PDF'e göre belirlenir
+    max_pages = max(doc1.page_count, doc2.page_count)
+
+    for i in range(max_pages):
+        # Sayfaları al, eğer bir PDF daha kısaysa boş sayfa olarak kabul et
+        page1 = doc1.load_page(i) if i < doc1.page_count else None
+        page2 = doc2.load_page(i) if i < doc2.page_count else None
+
+        # Sayfa boşsa, atla
+        if page1 is None or page2 is None:
+            continue
+
+        # Karşılaştırma için sayfalardaki kelimeleri ve konumlarını al
+        words1 = page1.get_text("words")
+        words2 = page2.get_text("words")
+        
+        # Sadece kelime metinlerini içeren listeler oluştur
+        text1 = [w[4] for w in words1]
+        text2 = [w[4] for w in words2]
+
+        # difflib ile kelime dizileri arasındaki farkları bul
+        matcher = difflib.SequenceMatcher(None, text1, text2, autojunk=False)
+        opcodes = matcher.get_opcodes()
+
+        # Farklılıklara göre vurgulamaları ekle
+        for tag, i1, i2, j1, j2 in opcodes:
+            if tag == 'replace' or tag == 'delete':
+                # Kırmızı: Eski dökümanda silinmiş veya değiştirilmiş metinler
+                for k in range(i1, i2):
+                    word_bbox = fitz.Rect(words1[k][:4])
+                    highlight = page1.add_highlight_annot(word_bbox)
+                    highlight.set_colors(stroke=(1, 0, 0)) # Kırmızı renk
+                    highlight.update()
+
+            if tag == 'replace' or tag == 'insert':
+                # Sarı: Yeni dökümana eklenmiş veya değiştirilmiş metinler
+                for k in range(j1, j2):
+                    word_bbox = fitz.Rect(words2[k][:4])
+                    highlight = page2.add_highlight_annot(word_bbox)
+                    highlight.set_colors(stroke=(1, 1, 0)) # Sarı renk
+                    highlight.update()
+            
+            if tag == 'equal':
+                 # Mavi: Yeri değişmiş metinler
+                 for k in range(i2 - i1):
+                    word1_data = words1[i1 + k]
+                    word2_data = words2[j1 + k]
+                    
+                    rect1 = fitz.Rect(word1_data[:4])
+                    rect2 = fitz.Rect(word2_data[:4])
+
+                    # Kelimenin pozisyonu belirli bir eşikten fazla değiştiyse
+                    if abs(rect1.x0 - rect2.x0) > 10 or abs(rect1.y0 - rect2.y0) > 10:
+                        h1 = page1.add_highlight_annot(rect1)
+                        h1.set_colors(stroke=(0.5, 0.8, 1)) # Açık Mavi
+                        h1.update()
+                        
+                        h2 = page2.add_highlight_annot(rect2)
+                        h2.set_colors(stroke=(0.5, 0.8, 1)) # Açık Mavi
+                        h2.update()
+
+    # Değişiklikler yapılmış PDF'leri byte olarak kaydet
+    output_bytes1 = doc1.tobytes()
+    output_bytes2 = doc2.tobytes()
+
+    doc1.close()
+    doc2.close()
+
+    return output_bytes1, output_bytes2
+
+def display_pdf(pdf_bytes):
+    """PDF'i base64 formatına çevirip iframe içinde gösterir."""
+    base64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
+    pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="800" type="application/pdf"></iframe>'
+    st.markdown(pdf_display, unsafe_allow_html=True)
+
+# --- Streamlit Arayüzü ---
+st.title("📄 Görsel PDF Karşılaştırma ve Fark Vurgulama Aracı")
+st.info("""
+Soldaki alana **eski** versiyonu, sağdaki alana **yeni** versiyonu yükleyerek aradaki farkları görebilirsiniz.
+- **<span style='color:red; font-weight:bold;'>Kırmızı Vurgu</span>**: Eski dökümanda olup yeni dökümanda olmayan (silinmiş) metinler.
+- **<span style='color:gold; font-weight:bold;'>Sarı Vurgu</span>**: Yeni dökümanda olup eski dökümanda olmayan (eklenmiş) metinler.
+- **<span style='color:cornflowerblue; font-weight:bold;'>Açık Mavi Vurgu</span>**: Her iki dökümanda da bulunan ancak yeri değişmiş metinler.
+""", unsafe_allow_html=True)
 
 
-# Ana başlık ve bilgilendirme
-st.title("📄 Gelişmiş Döküman Karşılaştırma Aracı")
-st.info("Karşılaştırmak istediğiniz iki dökümanı (Word, PDF, veya TXT) yükleyerek metinsel farkları görebilirsiniz. Eğer iki dosya da PDF ise, görsel olarak da karşılaştırılacaktır.")
-
-# Dosya yükleme alanlarını iki sütunda göster
 col1, col2 = st.columns(2)
 
 with col1:
-    st.subheader("Birinci Dosya")
+    st.header("Eski Versiyon (Sol)")
     uploaded_file1 = st.file_uploader(
-        "Lütfen birinci dosyayı seçin",
-        type=['txt', 'pdf', 'docx'],
-        key="file1",
-        help="Karşılaştırılacak ilk dosyayı buraya yükleyin."
+        "Lütfen eski PDF dosyasını seçin",
+        type=['pdf'],
+        key="file1"
     )
 
 with col2:
-    st.subheader("İkinci Dosya")
+    st.header("Yeni Versiyon (Sağ)")
     uploaded_file2 = st.file_uploader(
-        "Lütfen ikinci dosyayı seçin",
-        type=['txt', 'pdf', 'docx'],
-        key="file2",
-        help="Karşılaştırılacak ikinci dosyayı buraya yükleyin."
+        "Lütfen yeni PDF dosyasını seçin",
+        type=['pdf'],
+        key="file2"
     )
 
-# İki dosya da yüklendiğinde karşılaştırmayı yap
 if uploaded_file1 and uploaded_file2:
-    
-    # Eğer her iki dosya da PDF ise, görsel karşılaştırma yap
-    if uploaded_file1.type == "application/pdf" and uploaded_file2.type == "application/pdf":
-        st.header("Görsel Karşılaştırma", divider='rainbow')
-        with st.spinner("PDF sayfaları görsellere dönüştürülüyor... Lütfen bekleyin."):
-            images1 = render_pdf_to_images(uploaded_file1)
-            images2 = render_pdf_to_images(uploaded_file2)
+    with st.spinner("PDF'ler karşılaştırılıyor ve farklılıklar vurgulanıyor... Bu işlem dökümanların boyutuna göre zaman alabilir."):
+        try:
+            pdf_bytes1 = uploaded_file1.getvalue()
+            pdf_bytes2 = uploaded_file2.getvalue()
 
-            if images1 and images2:
-                st.success("PDF'ler görselleştirildi. Sayfaları aşağıda karşılaştırabilirsiniz.")
-                
-                # İki PDF'in sayfa sayılarından büyük olanı al
-                max_pages = max(len(images1), len(images2))
-                
-                for i in range(max_pages):
-                    st.markdown(f"--- \n ### Sayfa {i+1}")
-                    img_col1, img_col2 = st.columns(2)
-                    
-                    # Birinci PDF'in sayfasını göster
-                    with img_col1:
-                        if i < len(images1):
-                            st.image(images1[i], caption=f"{uploaded_file1.name} - Sayfa {i+1}", use_column_width=True)
-                        else:
-                            st.warning(f"Bu dökümanda {i+1}. sayfa bulunmuyor.")
-                    
-                    # İkinci PDF'in sayfasını göster
-                    with img_col2:
-                        if i < len(images2):
-                            st.image(images2[i], caption=f"{uploaded_file2.name} - Sayfa {i+1}", use_column_width=True)
-                        else:
-                            st.warning(f"Bu dökümanda {i+1}. sayfa bulunmuyor.")
+            # Karşılaştırma fonksiyonunu çağır
+            highlighted_pdf1_bytes, highlighted_pdf2_bytes = compare_and_highlight(pdf_bytes1, pdf_bytes2)
 
-    # Metinsel karşılaştırma her zaman yapılır
-    st.header("Metinsel Karşılaştırma", divider='rainbow')
-    with st.spinner("Dosyalar okunuyor ve metinler karşılaştırılıyor... Lütfen bekleyin."):
-        # Dosyalardan metinleri al
-        text1 = get_text_from_file(uploaded_file1)
-        text2 = get_text_from_file(uploaded_file2)
+            st.success("Karşılaştırma tamamlandı! Vurgulanmış PDF'ler aşağıdadır.")
+            
+            # Sonuçları göster
+            display_col1, display_col2 = st.columns(2)
+            with display_col1:
+                display_pdf(highlighted_pdf1_bytes)
+            with display_col2:
+                display_pdf(highlighted_pdf2_bytes)
 
-        # Metinler başarıyla alındıysa devam et
-        if text1 is not None and text2 is not None:
-            # Metinleri satırlara ayır
-            lines1 = text1.splitlines()
-            lines2 = text2.splitlines()
-
-            # HTMLDiff kullanarak farkları gösteren bir HTML tablosu oluştur
-            html_diff = difflib.HtmlDiff(wrapcolumn=80).make_table(
-                lines1,
-                lines2,
-                fromdesc=f"Dosya 1: {uploaded_file1.name}",
-                todesc=f"Dosya 2: {uploaded_file2.name}"
-            )
-
-            st.success("Metinsel karşılaştırma tamamlandı! Sonuçlar aşağıdadır.")
-
-            # Oluşturulan HTML'i ekranda göster
-            st.markdown(html_diff, unsafe_allow_html=True)
-
-elif uploaded_file1 and not uploaded_file2:
-    st.warning("Lütfen karşılaştırma yapmak için ikinci dosyayı da yükleyin.")
-elif not uploaded_file1 and uploaded_file2:
-    st.warning("Lütfen karşılaştırma yapmak için birinci dosyayı da yükleyin.")
+        except Exception as e:
+            st.error(f"PDF'ler işlenirken bir hata oluştu: {e}")
+            st.error("Lütfen PDF dosyalarının geçerli ve metin okunabilir olduğundan emin olun. Taranmış (resim tabanlı) PDF'ler desteklenmemektedir.")
 
