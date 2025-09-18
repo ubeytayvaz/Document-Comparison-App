@@ -87,14 +87,14 @@ def compare_and_highlight(pdf_bytes1, pdf_bytes2):
     return output_bytes1, output_bytes2
 
 def display_pdf(pdf_bytes):
-    """PDF'i base64 formatına çevirip iframe içinde gösterir."""
+    """PDF'i base64 formatına çevirip embed tag'i içinde gösterir."""
     base64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-    pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="800" type="application/pdf"></iframe>'
+    # iframe yerine embed tag'i kullanıldı
+    pdf_display = f'<embed src="data:application/pdf;base64,{base64_pdf}" width="100%" height="800" type="application/pdf">'
     st.markdown(pdf_display, unsafe_allow_html=True)
 
 # --- Streamlit Arayüzü ---
 st.title("📄 Görsel PDF Karşılaştırma ve Fark Vurgulama Aracı")
-# Hata veren st.info satırı st.markdown ile değiştirildi.
 st.markdown("""
 <div style="background-color: #e6f3ff; border-left: 5px solid #1a73e8; padding: 10px; border-radius: 5px; margin-bottom: 1rem;">
 Soldaki alana <b>eski</b> versiyonu, sağdaki alana <b>yeni</b> versiyonu yükleyerek aradaki farkları görebilirsiniz.
@@ -139,8 +139,22 @@ if uploaded_file1 and uploaded_file2:
             # Sonuçları göster
             display_col1, display_col2 = st.columns(2)
             with display_col1:
+                # İndirme butonu eklendi
+                st.download_button(
+                    label="Eski Versiyonu İndir (Vurgulanmış)",
+                    data=highlighted_pdf1_bytes,
+                    file_name=f"vurgulanmis_{uploaded_file1.name}",
+                    mime="application/pdf"
+                )
                 display_pdf(highlighted_pdf1_bytes)
             with display_col2:
+                 # İndirme butonu eklendi
+                st.download_button(
+                    label="Yeni Versiyonu İndir (Vurgulanmış)",
+                    data=highlighted_pdf2_bytes,
+                    file_name=f"vurgulanmis_{uploaded_file2.name}",
+                    mime="application/pdf"
+                )
                 display_pdf(highlighted_pdf2_bytes)
 
         except Exception as e:
