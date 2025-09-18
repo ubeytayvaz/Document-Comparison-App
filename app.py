@@ -86,12 +86,43 @@ def compare_and_highlight(pdf_bytes1, pdf_bytes2):
 
     return output_bytes1, output_bytes2
 
-def display_pdf(pdf_bytes):
-    """PDF'i base64 formatına çevirip embed tag'i içinde gösterir."""
-    base64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-    # iframe yerine embed tag'i kullanıldı
-    pdf_display = f'<embed src="data:application/pdf;base64,{base64_pdf}" width="100%" height="800" type="application/pdf">'
-    st.markdown(pdf_display, unsafe_allow_html=True)
+def render_comparison_view(pdf_bytes1, pdf_bytes2):
+    """
+    Vurgulanmış PDF'leri sayfa sayfa resim olarak yan yana gösterir.
+    """
+    doc1 = fitz.open(stream=pdf_bytes1, filetype="pdf")
+    doc2 = fitz.open(stream=pdf_bytes2, filetype="pdf")
+    
+    max_pages = max(doc1.page_count, doc2.page_count)
+
+    st.markdown("---") # Ayırıcı çizgi
+
+    for i in range(max_pages):
+        st.markdown(f"### Sayfa {i+1}")
+        col1, col2 = st.columns(2)
+
+        with col1:
+            if i < doc1.page_count:
+                page1 = doc1.load_page(i)
+                # Görüntü kalitesini artırmak için DPI (dots per inch) değeri artırıldı
+                pix = page1.get_pixmap(dpi=150) 
+                img_bytes = pix.tobytes("png")
+                st.image(img_bytes, use_column_width=True)
+            else:
+                st.info("Bu dökümanda bu sayfa mevcut değil.")
+        
+        with col2:
+            if i < doc2.page_count:
+                page2 = doc2.load_page(i)
+                pix = page2.get_pixmap(dpi=150)
+                img_bytes = pix.tobytes("png")
+                st.image(img_bytes, use_column_width=True)
+            else:
+                st.info("Bu dökümanda bu sayfa mevcut değil.")
+        st.markdown("---") # Her sayfadan sonra ayırıcı
+
+    doc1.close()
+    doc2.close()
 
 # --- Streamlit Arayüzü ---
 st.title("📄 Görsel PDF Karşılaştırma ve Fark Vurgulama Aracı")
@@ -134,28 +165,27 @@ if uploaded_file1 and uploaded_file2:
             # Karşılaştırma fonksiyonunu çağır
             highlighted_pdf1_bytes, highlighted_pdf2_bytes = compare_and_highlight(pdf_bytes1, pdf_bytes2)
 
-            st.success("Karşılaştırma tamamlandı! Vurgulanmış PDF'ler aşağıdadır.")
+            st.success("Karşılaştırma tamamlandı! Vurgulanmış versiyonları aşağıda görebilir veya indirebilirsiniz.")
             
-            # Sonuçları göster
-            display_col1, display_col2 = st.columns(2)
-            with display_col1:
-                # İndirme butonu eklendi
+            # İndirme butonları
+            dl_col1, dl_col2 = st.columns(2)
+            with dl_col1:
                 st.download_button(
                     label="Eski Versiyonu İndir (Vurgulanmış)",
                     data=highlighted_pdf1_bytes,
                     file_name=f"vurgulanmis_{uploaded_file1.name}",
                     mime="application/pdf"
                 )
-                display_pdf(highlighted_pdf1_bytes)
-            with display_col2:
-                 # İndirme butonu eklendi
+            with dl_col2:
                 st.download_button(
                     label="Yeni Versiyonu İndir (Vurgulanmış)",
                     data=highlighted_pdf2_bytes,
                     file_name=f"vurgulanmis_{uploaded_file2.name}",
                     mime="application/pdf"
                 )
-                display_pdf(highlighted_pdf2_bytes)
+            
+            # Sonuçları sayfa sayfa resim olarak göster
+            render_comparison_view(highlighted_pdf1_bytes, highlighted_pdf2_bytes)
 
         except Exception as e:
             st.error(f"PDF'ler işlenirken bir hata oluştu: {e}")
