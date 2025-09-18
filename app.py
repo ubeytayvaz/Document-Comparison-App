@@ -94,11 +94,16 @@ def display_pdf(pdf_bytes):
 
 # --- Streamlit Arayüzü ---
 st.title("📄 Görsel PDF Karşılaştırma ve Fark Vurgulama Aracı")
-st.info("""
-Soldaki alana **eski** versiyonu, sağdaki alana **yeni** versiyonu yükleyerek aradaki farkları görebilirsiniz.
-- **<span style='color:red; font-weight:bold;'>Kırmızı Vurgu</span>**: Eski dökümanda olup yeni dökümanda olmayan (silinmiş) metinler.
-- **<span style='color:gold; font-weight:bold;'>Sarı Vurgu</span>**: Yeni dökümanda olup eski dökümanda olmayan (eklenmiş) metinler.
-- **<span style='color:cornflowerblue; font-weight:bold;'>Açık Mavi Vurgu</span>**: Her iki dökümanda da bulunan ancak yeri değişmiş metinler.
+# Hata veren st.info satırı st.markdown ile değiştirildi.
+st.markdown("""
+<div style="background-color: #e6f3ff; border-left: 5px solid #1a73e8; padding: 10px; border-radius: 5px; margin-bottom: 1rem;">
+Soldaki alana <b>eski</b> versiyonu, sağdaki alana <b>yeni</b> versiyonu yükleyerek aradaki farkları görebilirsiniz.
+<ul>
+    <li><b><span style='color:red;'>Kırmızı Vurgu</span></b>: Eski dökümanda olup yeni dökümanda olmayan (silinmiş) metinler.</li>
+    <li><b><span style='color:darkgoldenrod;'>Sarı Vurgu</span></b>: Yeni dökümanda olup eski dökümanda olmayan (eklenmiş) metinler.</li>
+    <li><b><span style='color:cornflowerblue;'>Açık Mavi Vurgu</span></b>: Her iki dökümanda da bulunan ancak yeri değişmiş metinler.</li>
+</ul>
+</div>
 """, unsafe_allow_html=True)
 
 
