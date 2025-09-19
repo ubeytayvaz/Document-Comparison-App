@@ -55,20 +55,26 @@ def align_pages(doc1, doc2):
                     aligned_pairs.append((None, j1 + j))
     return aligned_pairs
 
-def compare_and_highlight(doc1, doc2, aligned_pairs, sensitivity):
+def compare_and_highlight(doc1, doc2, aligned_pairs):
     """
-    Hizalanmış sayfa çiftlerine göre iki PDF'i karşılaştırır, farkları vurgular
-    ve kelime bazında değişiklik istatistiklerini hesaplar.
+    Hizalanmış sayfa çiftlerine göre iki PDF'i karşılaştırır, farkları vurgular,
+    istatistikleri ve değişiklik olan sayfaların listesini döndürür.
     """
-    # Değişiklik özeti için sayaçlar
     summary = {'added': 0, 'deleted': 0, 'moved': 0}
+    modified_pages_info = []
     modified_pages_count = 0
+    sensitivity = 10  # Sabit hassasiyet değeri
 
-    for idx1, idx2 in aligned_pairs:
-        if idx1 is None or idx2 is None:
+    for i, (idx1, idx2) in enumerate(aligned_pairs):
+        page_modified = False
+        
+        if idx1 is None:  # Sayfa eklenmiş
+            modified_pages_info.append({'type': 'added', 'page_num': idx2 + 1, 'anchor_id': i})
+            continue
+        if idx2 is None:  # Sayfa silinmiş
+            modified_pages_info.append({'type': 'deleted', 'page_num': idx1 + 1, 'anchor_id': i})
             continue
 
-        page_modified = False
         page1 = doc1.load_page(idx1)
         page2 = doc2.load_page(idx2)
 
@@ -85,33 +91,21 @@ def compare_and_highlight(doc1, doc2, aligned_pairs, sensitivity):
             if tag != 'equal':
                 page_modified = True
 
-            if tag == 'delete':
+            if tag == 'delete' or tag == 'replace':
                 summary['deleted'] += (i2 - i1)
-                for k in range(i1, i2):
-                    highlight = page1.add_highlight_annot(fitz.Rect(words1[k][:4]))
-                    highlight.set_colors(stroke=(1, 0, 0)) # Kırmızı
-                    highlight.update()
-            
-            elif tag == 'insert':
-                summary['added'] += (j2 - j1)
-                for k in range(j1, j2):
-                    highlight = page2.add_highlight_annot(fitz.Rect(words2[k][:4]))
-                    highlight.set_colors(stroke=(1, 1, 0)) # Sarı
-                    highlight.update()
-
-            elif tag == 'replace':
-                summary['deleted'] += (i2 - i1)
-                summary['added'] += (j2 - j1)
                 for k in range(i1, i2):
                     highlight = page1.add_highlight_annot(fitz.Rect(words1[k][:4]))
                     highlight.set_colors(stroke=(1, 0, 0))
                     highlight.update()
+            
+            if tag == 'insert' or tag == 'replace':
+                summary['added'] += (j2 - j1)
                 for k in range(j1, j2):
                     highlight = page2.add_highlight_annot(fitz.Rect(words2[k][:4]))
                     highlight.set_colors(stroke=(1, 1, 0))
                     highlight.update()
             
-            elif tag == 'equal':
+            if tag == 'equal':
                  for k in range(i2 - i1):
                     word1_data = words1[i1 + k]
                     word2_data = words2[j1 + k]
@@ -121,7 +115,7 @@ def compare_and_highlight(doc1, doc2, aligned_pairs, sensitivity):
                         page_modified = True
                         summary['moved'] += 1
                         h1 = page1.add_highlight_annot(rect1)
-                        h1.set_colors(stroke=(0.5, 0.8, 1)) # Açık Mavi
+                        h1.set_colors(stroke=(0.5, 0.8, 1))
                         h1.update()
                         h2 = page2.add_highlight_annot(rect2)
                         h2.set_colors(stroke=(0.5, 0.8, 1))
@@ -129,12 +123,13 @@ def compare_and_highlight(doc1, doc2, aligned_pairs, sensitivity):
         
         if page_modified:
             modified_pages_count += 1
+            modified_pages_info.append({'type': 'modified', 'page_num': idx1 + 1, 'anchor_id': i})
 
     summary['modified_pages'] = modified_pages_count
     output_bytes1 = doc1.tobytes()
     output_bytes2 = doc2.tobytes()
 
-    return output_bytes1, output_bytes2, summary
+    return output_bytes1, output_bytes2, summary, modified_pages_info
 
 def render_all_pages_view(pdf_bytes1, pdf_bytes2, aligned_pairs):
     """
@@ -145,7 +140,10 @@ def render_all_pages_view(pdf_bytes1, pdf_bytes2, aligned_pairs):
     
     st.markdown("---") 
 
-    for idx1, idx2 in aligned_pairs:
+    for i, (idx1, idx2) in enumerate(aligned_pairs):
+        # Navigasyon için her sayfa grubuna bir HTML çapası (anchor) ekleniyor
+        st.markdown(f"<div id='page-{i}'></div>", unsafe_allow_html=True)
+        
         col1, col2 = st.columns(2)
         with col1:
             if idx1 is not None:
@@ -179,19 +177,6 @@ Soldaki alana <b>eski</b> versiyonu, sağdaki alana <b>yeni</b> versiyonu yükle
 </div>
 """, unsafe_allow_html=True)
 
-# --- YENİ: Hassasiyet Ayarı ---
-st.markdown("---")
-st.subheader("Ayarlar")
-sensitivity = st.slider(
-    "Yeri Değişmiş Metin Hassasiyeti (piksel)", 
-    min_value=0, 
-    max_value=50, 
-    value=10, 
-    help="Bir metnin yerinin değişmiş sayılması için gereken minimum piksel kaymasını belirtir. Değeri düşürmek daha hassas, artırmak ise daha az hassas bir karşılaştırma yapar."
-)
-st.markdown("---")
-
-
 col1, col2 = st.columns(2)
 with col1:
     st.header("Eski Versiyon (Sol)")
@@ -210,14 +195,28 @@ if uploaded_file1 and uploaded_file2:
             doc2 = fitz.open(stream=pdf_bytes2, filetype="pdf")
 
             aligned_pairs = align_pages(doc1, doc2)
-            # Hassasiyet değeri fonksiyona parametre olarak gönderiliyor
-            highlighted_pdf1_bytes, highlighted_pdf2_bytes, summary = compare_and_highlight(doc1, doc2, aligned_pairs, sensitivity)
+            highlighted_pdf1_bytes, highlighted_pdf2_bytes, summary, modified_pages_info = compare_and_highlight(doc1, doc2, aligned_pairs)
 
             doc1.close()
             doc2.close()
 
             st.success("Karşılaştırma tamamlandı!")
             
+            # --- YENİ: Değişiklik Navigasyonu (Sidebar) ---
+            st.sidebar.title("Değişiklik Navigasyonu")
+            st.sidebar.markdown("---")
+            if not modified_pages_info:
+                st.sidebar.info("Dökümanlar arasında bir değişiklik bulunamadı.")
+            else:
+                for change in modified_pages_info:
+                    change_type_tr = {
+                        'modified': 'Değiştirildi',
+                        'added': 'Eklendi',
+                        'deleted': 'Silindi'
+                    }[change['type']]
+                    page_num_display = f"Sayfa {change['page_num']}"
+                    st.sidebar.markdown(f"• <a href='#page-{change['anchor_id']}' style='text-decoration: none;'>{page_num_display} ({change_type_tr})</a>", unsafe_allow_html=True)
+
             # --- Değişiklik Özeti Raporu ---
             pages_added = sum(1 for p in aligned_pairs if p[0] is None)
             pages_deleted = sum(1 for p in aligned_pairs if p[1] is None)
