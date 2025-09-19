@@ -2,64 +2,9 @@ import streamlit as st
 import fitz  # PyMuPDF kütüphanesi
 import difflib
 import base64
-import os
-import tempfile
-import pypandoc # Word'den PDF'e dönüştürme için LibreOffice yerine eklendi
 
 # Sayfa yapılandırmasını geniş olarak ayarlayarak karşılaştırma için daha fazla alan sağlıyoruz
-st.set_page_config(layout="wide", page_title="Görsel Döküman Karşılaştırma Aracı")
-
-def convert_to_pdf_bytes(uploaded_file):
-    """
-    Yüklenen dosyanın türünü kontrol eder ve Word belgesiyse PDF byte'larına dönüştürür.
-    Bu işlem için sistemde Pandoc'un yüklü olması gerekir.
-    Zaten PDF ise doğrudan byte'ları döndürür.
-    """
-    file_bytes = uploaded_file.getvalue()
-    file_name = uploaded_file.name
-
-    if file_name.lower().endswith(('.docx', '.doc')):
-        try:
-            st.info(f"'{file_name}' dosyası PDF'e dönüştürülüyor...")
-            # pypandoc dosya yolları ile çalıştığı için geçici bir dosya kullanıyoruz
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as temp_word:
-                temp_word.write(file_bytes)
-                temp_word_path = temp_word.name
-            
-            # Çıktı PDF'sinin yolu
-            temp_pdf_path = temp_word_path.rsplit('.', 1)[0] + ".pdf"
-
-            # pypandoc kullanarak dönüştürme işlemi
-            try:
-                 pypandoc.convert_file(temp_word_path, 'pdf', outputfile=temp_pdf_path)
-            except OSError as e:
-                 # Pandoc yüklü değilse kullanıcıyı bilgilendir
-                 if "pandoc" in str(e).lower():
-                    st.error("HATA: Word dosyası dönüştürme başarısız.")
-                    st.warning("Bu özelliğin çalışması için sisteminizde 'Pandoc' aracının yüklü olması gerekmektedir. Lütfen Pandoc'u yükleyip tekrar deneyin.")
-                    # Geçici dosyayı temizle
-                    os.remove(temp_word_path)
-                    return None
-                 else:
-                     raise e # Başka bir OS hatası varsa yükselt
-
-            # Dönüştürülen PDF'in byte'larını oku
-            with open(temp_pdf_path, "rb") as f:
-                pdf_bytes = f.read()
-            
-            # Geçici dosyaları temizle
-            os.remove(temp_word_path)
-            os.remove(temp_pdf_path)
-
-            st.info(f"'{file_name}' başarıyla dönüştürüldü.")
-            return pdf_bytes
-
-        except Exception as conversion_error:
-            st.error(f"'{file_name}' dosyası dönüştürülürken genel bir hata oluştu: {conversion_error}")
-            return None
-    else:
-        # Dosya zaten PDF ise byte'ları doğrudan döndür
-        return file_bytes
+st.set_page_config(layout="wide", page_title="Görsel PDF Karşılaştırma Aracı")
 
 def compare_and_highlight(pdf_bytes1, pdf_bytes2):
     """
@@ -181,10 +126,10 @@ def render_all_pages_view(pdf_bytes1, pdf_bytes2):
 
 
 # --- Streamlit Arayüzü ---
-st.title("📄 Görsel Döküman Karşılaştırma ve Fark Vurgulama Aracı")
+st.title("📄 Görsel PDF Karşılaştırma ve Fark Vurgulama Aracı")
 st.markdown("""
 <div style="background-color: #e6f3ff; border-left: 5px solid #1a73e8; padding: 10px; border-radius: 5px; margin-bottom: 1rem;">
-Soldaki alana <b>eski</b> versiyonu, sağdaki alana <b>yeni</b> versiyonu yükleyerek aradaki farkları görebilirsiniz. PDF ve Word (.docx, .doc) formatları desteklenmektedir.
+Soldaki alana <b>eski</b> versiyonu, sağdaki alana <b>yeni</b> versiyonu yükleyerek aradaki farkları görebilirsiniz. Sadece PDF formatı desteklenmektedir.
 <ul>
     <li><b><span style='color:red;'>Kırmızı Vurgu</span></b>: Eski dökümanda olup yeni dökümanda olmayan (silinmiş) metinler.</li>
     <li><b><span style='color:darkgoldenrod;'>Sarı Vurgu</span></b>: Yeni dökümanda olup eski dökümanda olmayan (eklenmiş) metinler.</li>
@@ -199,55 +144,53 @@ col1, col2 = st.columns(2)
 with col1:
     st.header("Eski Versiyon (Sol)")
     uploaded_file1 = st.file_uploader(
-        "Lütfen eski dökümanı seçin (PDF, DOCX)",
-        type=['pdf', 'docx', 'doc'],
+        "Lütfen eski PDF dosyasını seçin",
+        type=['pdf'],
         key="file1"
     )
 
 with col2:
     st.header("Yeni Versiyon (Sağ)")
     uploaded_file2 = st.file_uploader(
-        "Lütfen yeni dökümanı seçin (PDF, DOCX)",
-        type=['pdf', 'docx', 'doc'],
+        "Lütfen yeni PDF dosyasını seçin",
+        type=['pdf'],
         key="file2"
     )
 
 if uploaded_file1 and uploaded_file2:
     
-    pdf_bytes1 = convert_to_pdf_bytes(uploaded_file1)
-    pdf_bytes2 = convert_to_pdf_bytes(uploaded_file2)
+    pdf_bytes1 = uploaded_file1.getvalue()
+    pdf_bytes2 = uploaded_file2.getvalue()
     
-    # Sadece iki dosya da başarıyla işlendiyse devam et
-    if pdf_bytes1 and pdf_bytes2:
-        with st.spinner("Dökümanlar karşılaştırılıyor ve farklılıklar vurgulanıyor... Bu işlem dökümanların boyutuna göre zaman alabilir."):
-            try:
-                # Karşılaştırma fonksiyonunu çağır
-                highlighted_pdf1_bytes, highlighted_pdf2_bytes = compare_and_highlight(pdf_bytes1, pdf_bytes2)
+    with st.spinner("PDF'ler karşılaştırılıyor ve farklılıklar vurgulanıyor... Bu işlem dökümanların boyutuna göre zaman alabilir."):
+        try:
+            # Karşılaştırma fonksiyonunu çağır
+            highlighted_pdf1_bytes, highlighted_pdf2_bytes = compare_and_highlight(pdf_bytes1, pdf_bytes2)
 
-                st.success("Karşılaştırma tamamlandı! Vurgulanmış versiyonları aşağıda görebilir veya indirebilirsiniz.")
-                
-                # İndirme butonları
-                dl_col1, dl_col2 = st.columns(2)
-                with dl_col1:
-                    st.download_button(
-                        label="Eski Versiyonu İndir (Vurgulanmış)",
-                        data=highlighted_pdf1_bytes,
-                        file_name=f"vurgulanmis_{uploaded_file1.name.rsplit('.', 1)[0]}.pdf",
-                        mime="application/pdf"
-                    )
-                with dl_col2:
-                    st.download_button(
-                        label="Yeni Versiyonu İndir (Vurgulanmış)",
-                        data=highlighted_pdf2_bytes,
-                        file_name=f"vurgulanmis_{uploaded_file2.name.rsplit('.', 1)[0]}.pdf",
-                        mime="application/pdf"
-                    )
-                
-                # Sonuçları sayfa sayfa resim olarak göster
-                render_all_pages_view(highlighted_pdf1_bytes, highlighted_pdf2_bytes)
+            st.success("Karşılaştırma tamamlandı! Vurgulanmış versiyonları aşağıda görebilir veya indirebilirsiniz.")
+            
+            # İndirme butonları
+            dl_col1, dl_col2 = st.columns(2)
+            with dl_col1:
+                st.download_button(
+                    label="Eski Versiyonu İndir (Vurgulanmış)",
+                    data=highlighted_pdf1_bytes,
+                    file_name=f"vurgulanmis_{uploaded_file1.name}",
+                    mime="application/pdf"
+                )
+            with dl_col2:
+                st.download_button(
+                    label="Yeni Versiyonu İndir (Vurgulanmış)",
+                    data=highlighted_pdf2_bytes,
+                    file_name=f"vurgulanmis_{uploaded_file2.name}",
+                    mime="application/pdf"
+                )
+            
+            # Sonuçları sayfa sayfa resim olarak göster
+            render_all_pages_view(highlighted_pdf1_bytes, highlighted_pdf2_bytes)
 
 
-            except Exception as e:
-                st.error(f"Dökümanlar işlenirken bir hata oluştu: {e}")
-                st.error("Lütfen dosyaların geçerli ve metin okunabilir olduğundan emin olun. Taranmış (resim tabanlı) dökümanlar desteklenmemektedir.")
+        except Exception as e:
+            st.error(f"Dökümanlar işlenirken bir hata oluştu: {e}")
+            st.error("Lütfen dosyaların geçerli ve metin okunabilir olduğundan emin olun. Taranmış (resim tabanlı) PDF'ler desteklenmemektedir.")
 
