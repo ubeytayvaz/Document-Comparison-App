@@ -4,7 +4,7 @@ import difflib
 import base64
 import os
 import tempfile
-from docx2pdf import convert
+import subprocess # Word'den PDF'e dönüştürme için eklendi
 
 # Sayfa yapılandırmasını geniş olarak ayarlayarak karşılaştırma için daha fazla alan sağlıyoruz
 st.set_page_config(layout="wide", page_title="Görsel Döküman Karşılaştırma Aracı")
@@ -12,6 +12,7 @@ st.set_page_config(layout="wide", page_title="Görsel Döküman Karşılaştırm
 def convert_to_pdf_bytes(uploaded_file):
     """
     Yüklenen dosyanın türünü kontrol eder ve Word belgesiyse PDF byte'larına dönüştürür.
+    Bu işlem için sistemde LibreOffice'in yüklü olması gerekir.
     Zaten PDF ise doğrudan byte'ları döndürür.
     """
     file_bytes = uploaded_file.getvalue()
@@ -20,33 +21,46 @@ def convert_to_pdf_bytes(uploaded_file):
     if file_name.lower().endswith(('.docx', '.doc')):
         try:
             st.info(f"'{file_name}' dosyası PDF'e dönüştürülüyor...")
-            # docx2pdf kütüphanesi dosya yolları ile çalıştığı için geçici bir dosya kullanıyoruz
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as temp_word:
-                temp_word.write(file_bytes)
-                temp_word_path = temp_word.name
-            
-            # Çıktı PDF'sinin yolu geçici dizinde olacaktır
-            temp_pdf_path = temp_word_path.rsplit('.', 1)[0] + ".pdf"
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_word_path = os.path.join(temp_dir, file_name)
+                
+                # Yüklenen Word dosyasını geçici bir yola yaz
+                with open(temp_word_path, "wb") as f:
+                    f.write(file_bytes)
 
-            # Dönüştürme işlemini gerçekleştir
-            convert(temp_word_path, temp_pdf_path)
+                # LibreOffice'i komut satırından çağırarak PDF'e dönüştür
+                try:
+                    subprocess.run(
+                        ['libreoffice', '--headless', '--convert-to', 'pdf', temp_word_path, '--outdir', temp_dir],
+                        check=True,
+                        capture_output=True
+                    )
+                except FileNotFoundError:
+                    st.error("HATA: Word dosyası dönüştürme başarısız.")
+                    st.warning("Bu özelliğin çalışması için sisteminizde LibreOffice'in yüklü olması gerekmektedir. Lütfen LibreOffice'i yükleyip tekrar deneyin.")
+                    return None
+                except subprocess.CalledProcessError as e:
+                    st.error(f"LibreOffice dönüştürme sırasında bir hata verdi. Lütfen dosyanın bozuk olmadığından emin olun. Hata detayı: {e.stderr.decode()}")
+                    return None
 
-            # Dönüştürülen PDF'in byte'larını oku
-            with open(temp_pdf_path, "rb") as f:
-                pdf_bytes = f.read()
-            
-            # Geçici dosyaları temizle
-            os.remove(temp_word_path)
-            os.remove(temp_pdf_path)
+                # Dönüştürülen PDF'in yolunu oluştur ve oku
+                pdf_filename = os.path.splitext(file_name)[0] + ".pdf"
+                temp_pdf_path = os.path.join(temp_dir, pdf_filename)
 
-            st.info(f"'{file_name}' başarıyla dönüştürüldü.")
-            return pdf_bytes
+                if os.path.exists(temp_pdf_path):
+                    with open(temp_pdf_path, "rb") as f:
+                        pdf_bytes = f.read()
+                    st.info(f"'{file_name}' başarıyla dönüştürüldü.")
+                    return pdf_bytes
+                else:
+                    st.error(f"Dönüştürme sonrası PDF dosyası bulunamadı. Lütfen LibreOffice'in düzgün çalıştığından emin olun.")
+                    return None
+
         except Exception as conversion_error:
-            st.error(f"'{file_name}' dosyası dönüştürülürken bir hata oluştu: {conversion_error}")
-            st.warning("Bu özelliğin çalışması için sisteminizde Microsoft Word (Windows için) veya LibreOffice (Linux/macOS için) yüklü olmalıdır.")
+            st.error(f"'{file_name}' dosyası dönüştürülürken genel bir hata oluştu: {conversion_error}")
             return None
     else:
-        # Dosya zaten PDF
+        # Dosya zaten PDF ise byte'ları doğrudan döndür
         return file_bytes
 
 def compare_and_highlight(pdf_bytes1, pdf_bytes2):
