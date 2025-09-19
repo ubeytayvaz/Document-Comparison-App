@@ -53,7 +53,6 @@ def align_pages(doc1, doc2):
             # Bir sayfa bloğu değiştirilmiş.
             # Blokları birebir eşleştirip arta kalanları silinmiş/eklenmiş olarak kabul et.
             len1 = i2 - i1
-            # HATA DÜZELTMESİ: j2 - j2 yerine j2 - j1 olmalı
             len2 = j2 - j1
             common_len = min(len1, len2)
 
