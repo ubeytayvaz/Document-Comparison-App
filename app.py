@@ -55,7 +55,7 @@ def align_pages(doc1, doc2):
                     aligned_pairs.append((None, j1 + j))
     return aligned_pairs
 
-def compare_and_highlight(doc1, doc2, aligned_pairs):
+def compare_and_highlight(doc1, doc2, aligned_pairs, sensitivity):
     """
     Hizalanmış sayfa çiftlerine göre iki PDF'i karşılaştırır, farkları vurgular
     ve kelime bazında değişiklik istatistiklerini hesaplar.
@@ -117,7 +117,7 @@ def compare_and_highlight(doc1, doc2, aligned_pairs):
                     word2_data = words2[j1 + k]
                     rect1 = fitz.Rect(word1_data[:4])
                     rect2 = fitz.Rect(word2_data[:4])
-                    if abs(rect1.x0 - rect2.x0) > 10 or abs(rect1.y0 - rect2.y0) > 10:
+                    if abs(rect1.x0 - rect2.x0) > sensitivity or abs(rect1.y0 - rect2.y0) > sensitivity:
                         page_modified = True
                         summary['moved'] += 1
                         h1 = page1.add_highlight_annot(rect1)
@@ -179,6 +179,19 @@ Soldaki alana <b>eski</b> versiyonu, sağdaki alana <b>yeni</b> versiyonu yükle
 </div>
 """, unsafe_allow_html=True)
 
+# --- YENİ: Hassasiyet Ayarı ---
+st.markdown("---")
+st.subheader("Ayarlar")
+sensitivity = st.slider(
+    "Yeri Değişmiş Metin Hassasiyeti (piksel)", 
+    min_value=0, 
+    max_value=50, 
+    value=10, 
+    help="Bir metnin yerinin değişmiş sayılması için gereken minimum piksel kaymasını belirtir. Değeri düşürmek daha hassas, artırmak ise daha az hassas bir karşılaştırma yapar."
+)
+st.markdown("---")
+
+
 col1, col2 = st.columns(2)
 with col1:
     st.header("Eski Versiyon (Sol)")
@@ -197,14 +210,15 @@ if uploaded_file1 and uploaded_file2:
             doc2 = fitz.open(stream=pdf_bytes2, filetype="pdf")
 
             aligned_pairs = align_pages(doc1, doc2)
-            highlighted_pdf1_bytes, highlighted_pdf2_bytes, summary = compare_and_highlight(doc1, doc2, aligned_pairs)
+            # Hassasiyet değeri fonksiyona parametre olarak gönderiliyor
+            highlighted_pdf1_bytes, highlighted_pdf2_bytes, summary = compare_and_highlight(doc1, doc2, aligned_pairs, sensitivity)
 
             doc1.close()
             doc2.close()
 
             st.success("Karşılaştırma tamamlandı!")
             
-            # --- YENİ: Değişiklik Özeti Raporu ---
+            # --- Değişiklik Özeti Raporu ---
             pages_added = sum(1 for p in aligned_pairs if p[0] is None)
             pages_deleted = sum(1 for p in aligned_pairs if p[1] is None)
             
