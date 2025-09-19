@@ -4,7 +4,7 @@ import difflib
 import base64
 import os
 import tempfile
-import subprocess # Word'den PDF'e dönüştürme için eklendi
+import pypandoc # Word'den PDF'e dönüştürme için LibreOffice yerine eklendi
 
 # Sayfa yapılandırmasını geniş olarak ayarlayarak karşılaştırma için daha fazla alan sağlıyoruz
 st.set_page_config(layout="wide", page_title="Görsel Döküman Karşılaştırma Aracı")
@@ -12,7 +12,7 @@ st.set_page_config(layout="wide", page_title="Görsel Döküman Karşılaştırm
 def convert_to_pdf_bytes(uploaded_file):
     """
     Yüklenen dosyanın türünü kontrol eder ve Word belgesiyse PDF byte'larına dönüştürür.
-    Bu işlem için sistemde LibreOffice'in yüklü olması gerekir.
+    Bu işlem için sistemde Pandoc'un yüklü olması gerekir.
     Zaten PDF ise doğrudan byte'ları döndürür.
     """
     file_bytes = uploaded_file.getvalue()
@@ -21,40 +21,38 @@ def convert_to_pdf_bytes(uploaded_file):
     if file_name.lower().endswith(('.docx', '.doc')):
         try:
             st.info(f"'{file_name}' dosyası PDF'e dönüştürülüyor...")
-            with tempfile.TemporaryDirectory() as temp_dir:
-                temp_word_path = os.path.join(temp_dir, file_name)
-                
-                # Yüklenen Word dosyasını geçici bir yola yaz
-                with open(temp_word_path, "wb") as f:
-                    f.write(file_bytes)
+            # pypandoc dosya yolları ile çalıştığı için geçici bir dosya kullanıyoruz
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as temp_word:
+                temp_word.write(file_bytes)
+                temp_word_path = temp_word.name
+            
+            # Çıktı PDF'sinin yolu
+            temp_pdf_path = temp_word_path.rsplit('.', 1)[0] + ".pdf"
 
-                # LibreOffice'i komut satırından çağırarak PDF'e dönüştür
-                try:
-                    subprocess.run(
-                        ['libreoffice', '--headless', '--convert-to', 'pdf', temp_word_path, '--outdir', temp_dir],
-                        check=True,
-                        capture_output=True
-                    )
-                except FileNotFoundError:
+            # pypandoc kullanarak dönüştürme işlemi
+            try:
+                 pypandoc.convert_file(temp_word_path, 'pdf', outputfile=temp_pdf_path)
+            except OSError as e:
+                 # Pandoc yüklü değilse kullanıcıyı bilgilendir
+                 if "pandoc" in str(e).lower():
                     st.error("HATA: Word dosyası dönüştürme başarısız.")
-                    st.warning("Bu özelliğin çalışması için sisteminizde LibreOffice'in yüklü olması gerekmektedir. Lütfen LibreOffice'i yükleyip tekrar deneyin.")
+                    st.warning("Bu özelliğin çalışması için sisteminizde 'Pandoc' aracının yüklü olması gerekmektedir. Lütfen Pandoc'u yükleyip tekrar deneyin.")
+                    # Geçici dosyayı temizle
+                    os.remove(temp_word_path)
                     return None
-                except subprocess.CalledProcessError as e:
-                    st.error(f"LibreOffice dönüştürme sırasında bir hata verdi. Lütfen dosyanın bozuk olmadığından emin olun. Hata detayı: {e.stderr.decode()}")
-                    return None
+                 else:
+                     raise e # Başka bir OS hatası varsa yükselt
 
-                # Dönüştürülen PDF'in yolunu oluştur ve oku
-                pdf_filename = os.path.splitext(file_name)[0] + ".pdf"
-                temp_pdf_path = os.path.join(temp_dir, pdf_filename)
+            # Dönüştürülen PDF'in byte'larını oku
+            with open(temp_pdf_path, "rb") as f:
+                pdf_bytes = f.read()
+            
+            # Geçici dosyaları temizle
+            os.remove(temp_word_path)
+            os.remove(temp_pdf_path)
 
-                if os.path.exists(temp_pdf_path):
-                    with open(temp_pdf_path, "rb") as f:
-                        pdf_bytes = f.read()
-                    st.info(f"'{file_name}' başarıyla dönüştürüldü.")
-                    return pdf_bytes
-                else:
-                    st.error(f"Dönüştürme sonrası PDF dosyası bulunamadı. Lütfen LibreOffice'in düzgün çalıştığından emin olun.")
-                    return None
+            st.info(f"'{file_name}' başarıyla dönüştürüldü.")
+            return pdf_bytes
 
         except Exception as conversion_error:
             st.error(f"'{file_name}' dosyası dönüştürülürken genel bir hata oluştu: {conversion_error}")
