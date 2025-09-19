@@ -2,9 +2,21 @@ import streamlit as st
 import fitz  # PyMuPDF kütüphanesi
 import difflib
 import base64
+import re # Metin normalleştirme için eklendi
 
 # Sayfa yapılandırmasını geniş olarak ayarlayarak karşılaştırma için daha fazla alan sağlıyoruz
 st.set_page_config(layout="wide", page_title="Görsel PDF Karşılaştırma Aracı")
+
+def normalize_text(text):
+    """
+    Karşılaştırma doğruluğunu artırmak için metni normalleştirir.
+    Küçük harfe çevirir, fazla boşlukları kaldırır ve noktalama işaretlerini siler.
+    """
+    text = text.lower()
+    # Türkçe karakterleri de içerecek şekilde noktalama işaretlerini kaldıran regex
+    text = re.sub(r'[^a-z0-9\sçğıöşü]', '', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
 
 def align_pages(doc1, doc2):
     """
@@ -13,8 +25,9 @@ def align_pages(doc1, doc2):
     Her bir tuple'ın eşleşen sayfa indekslerini içerdiği bir liste döndürür.
     (doc1_sayfa_indeksi, doc2_sayfa_indeksi). None değeri boş bir sayfayı belirtir.
     """
-    pages_text1 = [page.get_text("text") for page in doc1]
-    pages_text2 = [page.get_text("text") for page in doc2]
+    # Sayfa metinleri alınırken normalleştirme fonksiyonu uygulanır
+    pages_text1 = [normalize_text(page.get_text("text")) for page in doc1]
+    pages_text2 = [normalize_text(page.get_text("text")) for page in doc2]
 
     # Sayfa içerik listeleri üzerinde SequenceMatcher kullanarak hizalamayı bul
     page_matcher = difflib.SequenceMatcher(None, pages_text1, pages_text2, autojunk=False)
